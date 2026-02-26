@@ -8,6 +8,7 @@ import { homedir, networkInterfaces } from 'os'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 import { createHash, randomUUID } from 'crypto'
+import { execSync } from 'child_process'
 import dgram from 'dgram'
 import WebSocket, { WebSocketServer } from 'ws'
 
@@ -33,6 +34,12 @@ function getLanIp() {
       }
     }
   }
+  // Fallback: parse from ifconfig/ip (PRoot doesn't expose interfaces to Node)
+  try {
+    const out = execSync('ifconfig 2>/dev/null || ip -4 addr show 2>/dev/null', { encoding: 'utf8' })
+    const m = out.match(/inet\s+(192\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)/)
+    if (m) return m[1]
+  } catch {}
   return null
 }
 
