@@ -66,7 +66,8 @@ function generateEnvJs(relayWsUrl = '') {
       const config = JSON.parse(readFileSync(configPath, 'utf8'))
       const gw = config.gateway || {}
       token = gw.auth?.token || ''
-      gwHost = 'localhost'
+      const bind = gw.bind || 'loopback'
+      gwHost = (bind === 'loopback' || bind === '127.0.0.1') ? 'localhost' : (getLanIp() || 'localhost')
       gwPort = gw.port || 18789
       gwSecure = (gw.tailscale?.mode || 'off') !== 'off'
     } catch (err) {
