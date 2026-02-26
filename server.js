@@ -19,7 +19,7 @@ const RELAY_PORT = parseInt(process.env.RELAY_PORT || '9090', 10)
 const FEDERATION_SECRET = process.env.FEDERATION_SECRET || 'eclaw'
 const DISCOVERY_PORT = parseInt(process.env.DISCOVERY_PORT || '9091', 10)
 const BEACON_INTERVAL_MS = 4000
-const PEER_TIMEOUT_MS = 15000
+const PEER_TIMEOUT_MS = 60000
 const INSTANCE_ID = randomUUID()
 
 // ===== Networking Helpers =====
@@ -506,7 +506,7 @@ function startRelayServer(peerRelayUrls = []) {
 
 // ===== UDP Broadcast Discovery =====
 
-function startDiscovery({ relayPort, onPeerDiscovered, onPeerLost }) {
+function startDiscovery({ relayPort, onPeerDiscovered }) {
   const secretHash = hashSecret(FEDERATION_SECRET)
   const lanIp = getLanIp() || '127.0.0.1'
   const myUrl = `ws://${lanIp}:${relayPort}`
@@ -572,13 +572,13 @@ function startDiscovery({ relayPort, onPeerDiscovered, onPeerLost }) {
     }
   })
 
-  // Reap stale peers
+  // Reap stale peers — only cleans discovery state so re-discovery can happen.
+  // Does NOT tear down active WebSocket links (the relay handles reconnections).
   const reaperTimer = setInterval(() => {
     const now = Date.now()
     for (const [peerId, info] of discoveredPeers) {
       if (now - info.lastSeen > PEER_TIMEOUT_MS) {
-        console.log(`[discovery] peer timed out: ${info.url}`)
-        onPeerLost?.(info.url)
+        console.log(`[discovery] peer beacon expired: ${info.url} (will re-discover on next beacon)`)
         discoveredPeers.delete(peerId)
       }
     }
@@ -639,8 +639,7 @@ async function main() {
   if (relayWss) {
     stopDiscovery = startDiscovery({
       relayPort: RELAY_PORT,
-      onPeerDiscovered: (url) => relayWss.connectPeerRelay(url),
-      onPeerLost: (url) => relayWss.stopPeerRelay(url)
+      onPeerDiscovered: (url) => relayWss.connectPeerRelay(url)
     })
   }
 
