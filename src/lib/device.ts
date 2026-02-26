@@ -7,6 +7,7 @@ import type {
   DeviceAuthResult,
   DeviceIdentityAPI
 } from './types'
+import { ENV } from './env'
 
 const DB_NAME = 'eclaw-phone'
 const STORE_NAME = 'device'
@@ -151,7 +152,49 @@ async function sign(identity: DeviceKeyPair, payload: string): Promise<string> {
   return bufToBase64Url(signature)
 }
 
+function base64UrlToBytes(b64url: string): Uint8Array {
+  const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/')
+  const padded = b64 + '='.repeat((4 - b64.length % 4) % 4)
+  const binary = atob(padded)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+async function loadServerIdentity(): Promise<DeviceKeyPair | null> {
+  if (!ENV.SERVER_PRIVATE_KEY || !ENV.SERVER_PUBLIC_KEY || !ENV.SERVER_DEVICE_ID) return null
+
+  const pubBytes = base64UrlToBytes(ENV.SERVER_PUBLIC_KEY)
+  const privBytes = base64UrlToBytes(ENV.SERVER_PRIVATE_KEY)
+
+  const publicJwk: JsonWebKey = { kty: 'OKP', crv: 'Ed25519', x: ENV.SERVER_PUBLIC_KEY }
+  const privateJwk: JsonWebKey = { kty: 'OKP', crv: 'Ed25519', x: ENV.SERVER_PUBLIC_KEY, d: ENV.SERVER_PRIVATE_KEY }
+
+  const privateKey = await crypto.subtle.importKey('jwk', privateJwk, 'Ed25519', false, ['sign'])
+  const publicKey = await crypto.subtle.importKey('jwk', publicJwk, 'Ed25519', false, ['verify'])
+
+  return {
+    deviceId: ENV.SERVER_DEVICE_ID,
+    publicKeyRaw: pubBytes,
+    privateKey,
+    publicKey
+  }
+}
+
 async function getIdentity(): Promise<DeviceKeyPair> {
+  if (cached) return cached
+
+  // Prefer server identity when available (webchat authenticates as the server's device)
+  try {
+    const serverIdentity = await loadServerIdentity()
+    if (serverIdentity) {
+      cached = serverIdentity
+      return cached
+    }
+  } catch (err) {
+    console.warn('Failed to load server identity:', err)
+  }
+
   return load()
 }
 
@@ -174,7 +217,6 @@ async function buildDeviceAuth(identity: DeviceKeyPair, params: DeviceAuthParams
     publicKey: bufToBase64Url(identity.publicKeyRaw),
     signature: sig,
     signedAt,
-    token: params.token,
     nonce: params.nonce
   }
 }

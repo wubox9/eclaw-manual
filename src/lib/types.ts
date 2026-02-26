@@ -9,6 +9,7 @@ export interface EnvConfig {
   readonly GATEWAY_SECURE: boolean
   readonly SERVER_DEVICE_ID: string
   readonly SERVER_PUBLIC_KEY: string
+  readonly SERVER_PRIVATE_KEY: string
   readonly RELAY_WS_URL: string
 }
 
@@ -40,7 +41,6 @@ export interface DeviceAuthResult {
   readonly publicKey: string
   readonly signature: string
   readonly signedAt: number
-  readonly token: string
   readonly nonce: string
 }
 
