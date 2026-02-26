@@ -460,7 +460,7 @@ function startRelayServer(peerRelayUrls = []) {
 async function main() {
   // 1. Compute relay WebSocket URL from LAN IP (RELAY_HOST overrides auto-detect)
   let relayWsUrl = ''
-  const lanIp = process.env.RELAY_HOST || '192.168.4.201'
+  const lanIp = process.env.RELAY_HOST || '192.168.4.200'
   if (lanIp) {
     relayWsUrl = `ws://${lanIp}:${RELAY_PORT}`
     console.log(`Relay WS URL: ${relayWsUrl}`)
