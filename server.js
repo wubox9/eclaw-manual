@@ -26,14 +26,16 @@ const INSTANCE_ID = randomUUID()
 // ===== Networking Helpers =====
 
 function getLanIp() {
-  const ifaces = networkInterfaces()
-  for (const name of Object.keys(ifaces)) {
-    for (const iface of ifaces[name] ?? []) {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        return iface.address
+  try {
+    const ifaces = networkInterfaces()
+    for (const name of Object.keys(ifaces)) {
+      for (const iface of ifaces[name] ?? []) {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          return iface.address
+        }
       }
     }
-  }
+  } catch {}
   // Fallback: parse from ifconfig/ip (PRoot doesn't expose interfaces to Node)
   try {
     const out = execSync('ifconfig 2>/dev/null || ip -4 addr show 2>/dev/null', { encoding: 'utf8' })
