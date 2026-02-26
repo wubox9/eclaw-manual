@@ -14,7 +14,7 @@ const __dirname = dirname(__filename)
 
 const SERVE_PORT = parseInt(process.env.PORT || '8080', 10)
 const RELAY_PORT = parseInt(process.env.RELAY_PORT || '9090', 10)
-const FEDERATION_SECRET = process.env.FEDERATION_SECRET || ''
+const FEDERATION_SECRET = process.env.FEDERATION_SECRET || 'eclaw'
 
 // ===== Networking Helpers =====
 
@@ -484,7 +484,7 @@ async function main() {
   })
 
   // 5. Start WebSocket relay (with optional federation)
-  const peerRelayUrls = (process.env.PEER_RELAYS || '')
+  const peerRelayUrls = (process.env.PEER_RELAYS || 'ws://192.168.4.202:9090')
     .split(',')
     .map(s => s.trim())
     .filter(Boolean)
