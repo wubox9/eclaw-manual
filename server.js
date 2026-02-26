@@ -59,7 +59,6 @@ function generateEnvJs(relayWsUrl = '') {
   let gwSecure = false
   let serverDeviceId = ''
   let serverPublicKey = ''
-  let serverPrivateKey = ''
 
   // Read gateway config
   if (existsSync(configPath)) {
@@ -92,15 +91,6 @@ function generateEnvJs(relayWsUrl = '') {
         serverPublicKey = rawKey.toString('base64url')
       }
 
-      if (identity.privateKeyPem) {
-        const pem = identity.privateKeyPem
-        const lines = pem.trim().split('\n').filter(l => !l.startsWith('-----'))
-        const rawB64 = lines.join('')
-        const der = Buffer.from(rawB64, 'base64')
-        const rawKey = der.subarray(-32)
-        serverPrivateKey = rawKey.toString('base64url')
-      }
-
       console.log(`Found server identity: ${serverDeviceId.slice(0, 16)}...`)
     } catch (err) {
       console.error('Failed to read server identity:', err.message)
@@ -120,7 +110,6 @@ export const ENV: EnvConfig = {
   GATEWAY_SECURE: ${Boolean(gwSecure)},
   SERVER_DEVICE_ID: ${safeStr(serverDeviceId)},
   SERVER_PUBLIC_KEY: ${safeStr(serverPublicKey)},
-  SERVER_PRIVATE_KEY: ${safeStr(serverPrivateKey)},
   RELAY_WS_URL: ${safeStr(relayWsUrl)}
 }
 `
