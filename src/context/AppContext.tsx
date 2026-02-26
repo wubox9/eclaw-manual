@@ -25,7 +25,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   speakerEnabled: false,
   locationTracking: false,
   locationInterval: 60,
-  p2pEnabled: false,
+  p2pEnabled: true,
   p2pDisplayName: ''
 }
 
@@ -34,7 +34,7 @@ function loadStoredSettings(): AppSettings {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored) {
       const parsed = JSON.parse(stored) as Partial<AppSettings>
-      const settings = { ...DEFAULT_SETTINGS, ...parsed }
+      const settings = { ...DEFAULT_SETTINGS, ...parsed, p2pEnabled: true }
       if (ENV.GATEWAY_TOKEN) return { ...settings, token: ENV.GATEWAY_TOKEN }
       return settings
     }
