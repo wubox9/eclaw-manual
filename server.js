@@ -72,6 +72,17 @@ function generateEnvJs(relayWsUrl = '') {
       gwHost = (bind === 'loopback' || bind === '127.0.0.1') ? 'localhost' : (getLanIp() || 'localhost')
       gwPort = gw.port || 18789
       gwSecure = (gw.tailscale?.mode || 'off') !== 'off'
+
+      // Ensure eclaw-phone origin is allowed by the gateway
+      const origins = [`http://${gwHost}:${SERVE_PORT}`, `http://localhost:${SERVE_PORT}`, `http://127.0.0.1:${SERVE_PORT}`]
+      const existing = gw.controlUi?.allowedOrigins || []
+      const merged = [...new Set([...existing, ...origins])]
+      if (JSON.stringify(merged) !== JSON.stringify(existing)) {
+        if (!config.gateway.controlUi) config.gateway.controlUi = {}
+        config.gateway.controlUi.allowedOrigins = merged
+        writeFileSync(configPath, JSON.stringify(config, null, 2))
+        console.log(`Updated gateway.controlUi.allowedOrigins: ${merged.join(', ')}`)
+      }
     } catch (err) {
       console.error('Failed to read gateway config:', err.message)
     }
