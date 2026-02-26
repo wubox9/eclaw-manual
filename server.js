@@ -7,6 +7,8 @@ import { join, extname } from 'path'
 import { homedir, networkInterfaces } from 'os'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
+import { createHash, randomUUID } from 'crypto'
+import dgram from 'dgram'
 import WebSocket, { WebSocketServer } from 'ws'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -15,6 +17,10 @@ const __dirname = dirname(__filename)
 const SERVE_PORT = parseInt(process.env.PORT || '8080', 10)
 const RELAY_PORT = parseInt(process.env.RELAY_PORT || '9090', 10)
 const FEDERATION_SECRET = process.env.FEDERATION_SECRET || 'eclaw'
+const DISCOVERY_PORT = parseInt(process.env.DISCOVERY_PORT || '9091', 10)
+const BEACON_INTERVAL_MS = 4000
+const PEER_TIMEOUT_MS = 15000
+const INSTANCE_ID = randomUUID()
 
 // ===== Networking Helpers =====
 
@@ -28,6 +34,10 @@ function getLanIp() {
     }
   }
   return null
+}
+
+function hashSecret(secret) {
+  return createHash('sha256').update(secret).digest('hex').slice(0, 16)
 }
 
 // ===== Config (replaces generate-env.sh) =====
@@ -189,6 +199,9 @@ function startRelayServer(peerRelayUrls = []) {
 
   /** @type {Set<{ ws: import('ws').WebSocket, reconnectTimer: ReturnType<typeof setTimeout> | null, stopped: boolean }>} */
   const outboundFedLinks = new Set()
+
+  /** @type {Set<string>} */
+  const knownPeerUrls = new Set()
 
   const wss = new WebSocketServer({ port: RELAY_PORT })
 
@@ -384,7 +397,14 @@ function startRelayServer(peerRelayUrls = []) {
     connectPeerRelay(url)
   }
 
-  function connectPeerRelay(url, link = { ws: null, reconnectTimer: null, stopped: false }) {
+  function connectPeerRelay(url, link = null) {
+    const isNewConnection = link === null
+    if (isNewConnection) {
+      if (knownPeerUrls.has(url)) return
+      knownPeerUrls.add(url)
+      link = { ws: null, reconnectTimer: null, stopped: false }
+      urlToLink.set(url, link)
+    }
     if (link.stopped) return
     outboundFedLinks.add(link)
     console.log(`[federation] connecting to ${url}...`)
@@ -417,7 +437,10 @@ function startRelayServer(peerRelayUrls = []) {
     ws.on('close', () => {
       fedLinks.delete(ws)
       broadcastPeerList()
-      if (link.stopped) return
+      if (link.stopped) {
+        knownPeerUrls.delete(url)
+        return
+      }
       console.log(`[federation] disconnected from ${url}, reconnecting in 5s...`)
       link.reconnectTimer = setTimeout(() => {
         link.reconnectTimer = null
@@ -430,6 +453,28 @@ function startRelayServer(peerRelayUrls = []) {
     })
   }
 
+  /** @type {Map<string, { ws: import('ws').WebSocket, reconnectTimer: ReturnType<typeof setTimeout> | null, stopped: boolean }>} */
+  const urlToLink = new Map()
+
+  function stopPeerRelay(url) {
+    const link = urlToLink.get(url)
+    if (!link) return
+    link.stopped = true
+    if (link.reconnectTimer) {
+      clearTimeout(link.reconnectTimer)
+      link.reconnectTimer = null
+    }
+    if (link.ws) {
+      link.ws.removeAllListeners('close')
+      link.ws.close()
+      link.ws = null
+    }
+    outboundFedLinks.delete(link)
+    urlToLink.delete(url)
+    knownPeerUrls.delete(url)
+    console.log(`[federation] stopped peer: ${url}`)
+  }
+
   function closeAll() {
     for (const link of outboundFedLinks) {
       link.stopped = true
@@ -438,12 +483,14 @@ function startRelayServer(peerRelayUrls = []) {
         link.reconnectTimer = null
       }
       if (link.ws) {
-        link.ws.onclose = null
+        link.ws.removeAllListeners('close')
         link.ws.close()
         link.ws = null
       }
     }
     outboundFedLinks.clear()
+    urlToLink.clear()
+    knownPeerUrls.clear()
   }
 
   console.log(`WebSocket relay listening on port ${RELAY_PORT}`)
@@ -452,7 +499,97 @@ function startRelayServer(peerRelayUrls = []) {
   }
 
   wss.closeAll = closeAll
+  wss.connectPeerRelay = connectPeerRelay
+  wss.stopPeerRelay = stopPeerRelay
   return wss
+}
+
+// ===== UDP Broadcast Discovery =====
+
+function startDiscovery({ relayPort, onPeerDiscovered, onPeerLost }) {
+  const secretHash = hashSecret(FEDERATION_SECRET)
+  const lanIp = getLanIp() || '127.0.0.1'
+  const myUrl = `ws://${lanIp}:${relayPort}`
+
+  /** @type {Map<string, { url: string, lastSeen: number }>} */
+  const discoveredPeers = new Map()
+
+  const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true })
+
+  socket.on('error', (err) => {
+    console.error('[discovery] socket error:', err.message)
+    try { socket.close() } catch { /* already closed */ }
+  })
+
+  // Broadcast beacon
+  const beacon = () => {
+    const msg = JSON.stringify({
+      type: 'relay-beacon',
+      instanceId: INSTANCE_ID,
+      url: myUrl,
+      secretHash
+    })
+    const buf = Buffer.from(msg)
+    socket.send(buf, 0, buf.length, DISCOVERY_PORT, '255.255.255.255', (err) => {
+      if (err) console.error('[discovery] broadcast error:', err.message)
+    })
+  }
+
+  let beaconTimer = null
+
+  socket.bind(DISCOVERY_PORT, () => {
+    socket.setBroadcast(true)
+    console.log(`[discovery] listening on UDP port ${DISCOVERY_PORT}`)
+    beacon()
+    beaconTimer = setInterval(beacon, BEACON_INTERVAL_MS)
+  })
+
+  // Receive beacons
+  socket.on('message', (raw, rinfo) => {
+    let msg
+    try { msg = JSON.parse(String(raw)) } catch { return }
+
+    if (msg.type !== 'relay-beacon') return
+    if (typeof msg.instanceId !== 'string' || msg.instanceId.length > 64) return
+    if (msg.instanceId === INSTANCE_ID) return
+    if (msg.secretHash !== secretHash) return
+
+    // Validate URL: must be ws:// or wss://
+    try {
+      const parsed = new URL(msg.url)
+      if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') return
+    } catch {
+      return
+    }
+
+    const peerId = msg.instanceId
+    const isNew = !discoveredPeers.has(peerId)
+    discoveredPeers.set(peerId, { url: msg.url, lastSeen: Date.now() })
+
+    if (isNew) {
+      console.log(`[discovery] found new peer: ${msg.url} (from ${rinfo.address})`)
+      onPeerDiscovered(msg.url)
+    }
+  })
+
+  // Reap stale peers
+  const reaperTimer = setInterval(() => {
+    const now = Date.now()
+    for (const [peerId, info] of discoveredPeers) {
+      if (now - info.lastSeen > PEER_TIMEOUT_MS) {
+        console.log(`[discovery] peer timed out: ${info.url}`)
+        onPeerLost?.(info.url)
+        discoveredPeers.delete(peerId)
+      }
+    }
+  }, PEER_TIMEOUT_MS)
+
+  return function stopDiscovery() {
+    if (beaconTimer) clearInterval(beaconTimer)
+    clearInterval(reaperTimer)
+    try { socket.close() } catch { /* already closed */ }
+    console.log('[discovery] stopped')
+  }
 }
 
 // ===== Main =====
@@ -460,7 +597,7 @@ function startRelayServer(peerRelayUrls = []) {
 async function main() {
   // 1. Compute relay WebSocket URL from LAN IP (RELAY_HOST overrides auto-detect)
   let relayWsUrl = ''
-  const lanIp = process.env.RELAY_HOST || '192.168.4.200'
+  const lanIp = process.env.RELAY_HOST || getLanIp() || '127.0.0.1'
   if (lanIp) {
     relayWsUrl = `ws://${lanIp}:${RELAY_PORT}`
     console.log(`Relay WS URL: ${relayWsUrl}`)
@@ -484,7 +621,7 @@ async function main() {
   })
 
   // 5. Start WebSocket relay (with optional federation)
-  const peerRelayUrls = (process.env.PEER_RELAYS || 'ws://192.168.4.202:9090')
+  const peerRelayUrls = (process.env.PEER_RELAYS || '')
     .split(',')
     .map(s => s.trim())
     .filter(Boolean)
@@ -497,9 +634,20 @@ async function main() {
     console.warn('P2P relay will not be available, but static serving continues.')
   }
 
-  // 6. Graceful shutdown
+  // 6. Start UDP broadcast discovery
+  let stopDiscovery = null
+  if (relayWss) {
+    stopDiscovery = startDiscovery({
+      relayPort: RELAY_PORT,
+      onPeerDiscovered: (url) => relayWss.connectPeerRelay(url),
+      onPeerLost: (url) => relayWss.stopPeerRelay(url)
+    })
+  }
+
+  // 7. Graceful shutdown
   const shutdown = async (signal) => {
     console.log(`\n${signal} received. Shutting down...`)
+    if (stopDiscovery) stopDiscovery()
     if (relayWss) {
       if (relayWss.closeAll) relayWss.closeAll()
       relayWss.close()
