@@ -174,6 +174,7 @@ async function buildDeviceAuth(identity: DeviceKeyPair, params: DeviceAuthParams
     publicKey: bufToBase64Url(identity.publicKeyRaw),
     signature: sig,
     signedAt,
+    token: params.token,
     nonce: params.nonce
   }
 }

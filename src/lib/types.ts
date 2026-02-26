@@ -40,6 +40,7 @@ export interface DeviceAuthResult {
   readonly publicKey: string
   readonly signature: string
   readonly signedAt: number
+  readonly token: string
   readonly nonce: string
 }
 
