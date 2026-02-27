@@ -5,6 +5,8 @@
 
 Turn your Android phone into a **24/7 AI agent** that runs entirely on-device. No computer required. No cloud server. Just your phone and an internet connection.
 
+![download](https://github.com/user-attachments/assets/1c60502a-a329-412b-8ca2-88520853b75a)
+
 ## What You'll Get
 
 By the end of this guide, your Android phone will:
@@ -111,7 +113,7 @@ source ~/.bashrc
 
 ## 🚀 Step 6 — Launch OpenClaw
 
-### Run the setup wizard
+### Run the openclaw setup wizard
 
 ```bash
 openclaw onboard &
@@ -119,13 +121,28 @@ openclaw onboard &
 
 > When prompted for **Gateway Bind**, select: `127.0.0.1 (Loopback)`
 
-### Start the agent
+### Start the openclaw
 
 ```bash
-openclaw gateway
+openclaw gateway &
 ```
 
 ## 🚀 Step 7 — Launch eClaw Mobile UI
+
+### Download eClaw
+
+```bash
+git clone https://github.com/wubox9/eclaw.git
+```
+
+### Start the eClaw
+
+```bash
+cd eclaw
+node build.js
+node server.js &
+```
+
 ---
 
 ## 🎉 You're Live!
