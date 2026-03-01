@@ -75,8 +75,10 @@ Inside the Ubuntu shell:
 ```bash
 apt update && apt upgrade -y
 apt install -y curl git
+```
 
 # Install Node.js 22
+```bash
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
 apt install -y nodejs
 ```
@@ -89,11 +91,6 @@ apt install -y nodejs
 curl -fsSL https://openclaw.ai/install.sh | bash
 openclaw --version
 ```
-
-```bash
-curl -fsSL https://openclaw.ai/install.sh | bash
-```
-
 ---
 
 ## 🩹 Step 5 — Fix Android Network Interface Error
@@ -103,8 +100,11 @@ Android's proot environment lacks proper network interfaces. Create a small shim
 ```bash
 const os = require('os');
 os.networkInterfaces = () => ({});
+```
 
+Then do following:
 
+```bash
 echo 'export NODE_OPTIONS="-r /root/hijack.js"' >> ~/.bashrc
 source ~/.bashrc
 ```
